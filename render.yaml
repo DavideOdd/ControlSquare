@@ -1,0 +1,20 @@
+services:
+  # Control Square Web Service
+  - type: web
+    name: control-square
+    env: node
+    region: frankfurt # Cambia con la tua region preferita
+    plan: free # Cambia con: starter, standard, pro se necessario
+    branch: main # O il tuo branch principale
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: WS_HEARTBEAT_INTERVAL
+        value: 30000
+    # Auto-deploy on push
+    autoDeploy: true

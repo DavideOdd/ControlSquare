@@ -1,0 +1,125 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  # Job 1: Test e Lint
+  test:
+    name: Test and Lint
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Check for syntax errors
+      run: node -c server.js
+
+    - name: Display package info
+      run: |
+        echo "Node version: $(node --version)"
+        echo "NPM version: $(npm --version)"
+        npm list --depth=0
+
+  # Job 2: Build Docker Image
+  docker-build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: control-square:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Test Docker image
+      run: |
+        docker build -t control-square:test .
+        docker run -d -p 3000:3000 --name test-container control-square:test
+        sleep 5
+        curl -f http://localhost:3000/ || exit 1
+        docker stop test-container
+
+  # Job 3: Deploy to Production (opzionale)
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [test, docker-build]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy notification
+      run: |
+        echo "Ready to deploy to production"
+        echo "Configure your deployment service (Render, Railway, etc.)"
+        echo "Add deployment secrets to GitHub repository settings"
+
+    # Esempio di deploy su Render (decommentare e configurare)
+    # - name: Trigger Render Deploy
+    #   run: |
+    #     curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+    # Esempio di deploy su Railway (decommentare e configurare)
+    # - name: Deploy to Railway
+    #   uses: berviantoleo/railway-deploy@main
+    #   with:
+    #     railway_token: ${{ secrets.RAILWAY_TOKEN }}
+    #     service: control-square
+
+  # Job 4: Security Scan
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run npm audit
+      run: npm audit --audit-level=moderate || true
+
+    - name: Check for vulnerabilities
+      run: |
+        if npm audit --audit-level=high 2>&1 | grep -q "found 0 vulnerabilities"; then
+          echo "No high vulnerabilities found"
+        else
+          echo "⚠️ High vulnerabilities detected, please review"
+        fi

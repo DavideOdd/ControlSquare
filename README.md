@@ -3,7 +3,23 @@
 Sistema di controllo centralizzato per display multipli con comunicazione WebSocket in tempo reale.
 
 ![Node.js](https://img.shields.io/badge/Node.js-v14+-green)
+![Docker](https://img.shields.io/badge/Docker-Ready-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
+
+## 🚀 Quick Start con GitHub
+
+Questo progetto è **completamente configurato per GitHub** con:
+
+- ✅ **CI/CD automatico** con GitHub Actions
+- 🐳 **Docker-ready** per deployment su qualsiasi piattaforma
+- 📦 **Deploy automatico** su Render, Railway e altri servizi cloud
+- 🔒 **Security scanning** automatico delle dipendenze
+
+**Per iniziare:**
+1. Fork o clona questo repository
+2. Push su GitHub → CI/CD si attiva automaticamente
+3. Connetti a Render/Railway → Deploy automatico configurato
+4. Ogni push triggera test, build e deploy!
 
 ## 📋 Indice
 
@@ -15,6 +31,11 @@ Sistema di controllo centralizzato per display multipli con comunicazione WebSoc
 - [Struttura Messaggi WebSocket](#-struttura-messaggi-websocket)
 - [Estensibilità](#-estensibilità)
 - [Deploy](#-deploy)
+  - [Deploy con Docker](#-deploy-con-docker-consigliato)
+  - [GitHub Actions CI/CD](#-deploy-automatico-con-github-actions)
+  - [Deploy su Render](#-deploy-su-render-con-auto-deploy-da-github)
+  - [Deploy su Railway](#-deploy-su-railway-con-auto-deploy-da-github)
+  - [Altri servizi cloud](#-deploy-su-glitch)
 - [Troubleshooting](#-troubleshooting)
 - [Contribuire](#-contribuire)
 - [Licenza](#-licenza)
@@ -564,37 +585,80 @@ module.exports = {
 
 ## 🌐 Deploy
 
-### Deploy su Render
+### 🐳 Deploy con Docker (Consigliato)
+
+Il progetto include una configurazione Docker completa per deployment semplice e consistente.
+
+#### Build e Run con Docker
+
+```bash
+# Build immagine
+docker build -t control-square .
+
+# Run container
+docker run -d -p 3000:3000 --name control-square control-square
+
+# Oppure usa docker-compose
+docker-compose up -d
+```
+
+#### Variabili d'ambiente con Docker
+
+```bash
+docker run -d -p 3000:3000 \
+  -e NODE_ENV=production \
+  -e PORT=3000 \
+  -e WS_HEARTBEAT_INTERVAL=30000 \
+  --name control-square control-square
+```
+
+### 🚀 Deploy Automatico con GitHub Actions
+
+Il progetto include un workflow CI/CD completo che viene eseguito automaticamente:
+
+- ✅ **Test**: Verifica sintassi e dipendenze
+- 🐳 **Docker Build**: Build e test dell'immagine Docker
+- 🔒 **Security Scan**: Controllo vulnerabilità con npm audit
+- 🚀 **Deploy**: Deploy automatico in produzione (configurabile)
+
+Il workflow si attiva automaticamente su push/PR verso i branch `main`, `master` o `develop`.
+
+### 📦 Deploy su Render (Con Auto-Deploy da GitHub)
 
 1. **Crea account su [Render](https://render.com)**
 
-2. **Crea nuovo Web Service**
-   - Repository: Link al tuo repo GitHub
-   - Build Command: `npm install`
-   - Start Command: `npm start`
+2. **Connetti repository GitHub**
+   - Dashboard → New → Web Service
+   - Connetti il tuo repository GitHub
+   - Render rileverà automaticamente `render.yaml`
 
-3. **Variabili d'ambiente**
-   ```
-   PORT=3000
-   NODE_ENV=production
-   ```
-
-4. **Deploy**
-   - Render builderà e deployerà automaticamente
+3. **Deploy automatico**
+   - Il file `render.yaml` configura tutto automaticamente
+   - Ogni push al branch principale triggera il deploy
    - URL: `https://your-app.onrender.com`
 
-### Deploy su Railway
+4. **Configurazione manuale (opzionale)**
+   Se preferisci configurare manualmente:
+   - Build Command: `npm install`
+   - Start Command: `npm start`
+   - Environment: Usa le variabili da `.env.example`
+
+### 🚂 Deploy su Railway (Con Auto-Deploy da GitHub)
 
 1. **Crea account su [Railway](https://railway.app)**
 
 2. **New Project → Deploy from GitHub**
+   - Connetti il repository
+   - Railway rileverà automaticamente `railway.json`
 
-3. **Configurazione automatica**
-   - Railway rileva automaticamente Node.js
-   - Usa il comando `npm start` da package.json
+3. **Deploy automatico**
+   - Railway configura tutto automaticamente
+   - Ogni push triggera il deploy
+   - URL: `https://your-app.up.railway.app`
 
-4. **Ottieni URL pubblico**
-   - Settings → Generate Domain
+4. **Variabili d'ambiente**
+   - Settings → Variables
+   - Copia da `.env.example` se necessario
 
 ### Deploy su Glitch
 

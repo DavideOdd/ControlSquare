@@ -3,11 +3,29 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 
+// Configurazione ambiente
+const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const WS_HEARTBEAT_INTERVAL = parseInt(process.env.WS_HEARTBEAT_INTERVAL || '30000', 10);
+const CORS_ORIGIN = process.env.CORS_ORIGIN;
+
 const app = express();
+
+// Configurazione CORS per produzione
+if (CORS_ORIGIN) {
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', CORS_ORIGIN);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+}
+
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
-
-const PORT = process.env.PORT || 3000;
 
 // Registro dei display connessi
 const displays = new Map();
@@ -44,7 +62,7 @@ wss.on('connection', (ws, req) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }));
       }
-    }, 30000); // Ogni 30 secondi
+    }, WS_HEARTBEAT_INTERVAL);
   };
 
   startHeartbeat();
@@ -326,28 +344,72 @@ wss.on('connection', (ws, req) => {
   }
 });
 
+// Gestione errori non catturati
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
 // Avvio server
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
+  const host = process.env.RENDER_EXTERNAL_HOSTNAME ||
+               process.env.RAILWAY_STATIC_URL ||
+               'localhost';
+
   console.log(`
 ╔════════════════════════════════════════╗
 ║      CONTROL SQUARE SERVER             ║
 ╚════════════════════════════════════════╝
 
+Environment: ${NODE_ENV}
 Server in ascolto su porta: ${PORT}
+${NODE_ENV === 'production' ? `Host: ${host}` : ''}
 
 URLs:
-- Controller: http://localhost:${PORT}/controller
-- Display:    http://localhost:${PORT}/display
+${NODE_ENV === 'production'
+  ? `- Controller: https://${host}/controller
+- Display:    https://${host}/display`
+  : `- Controller: http://localhost:${PORT}/controller
+- Display:    http://localhost:${PORT}/display`}
 
-Premi CTRL+C per terminare
+${NODE_ENV === 'production' ? 'Server ready for production' : 'Premi CTRL+C per terminare'}
   `);
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM ricevuto, chiusura graceful...');
+const gracefulShutdown = (signal) => {
+  console.log(`\n${signal} ricevuto, chiusura graceful...`);
+
+  // Chiudi nuove connessioni
   server.close(() => {
-    console.log('Server chiuso');
+    console.log('Server HTTP chiuso');
+  });
+
+  // Chiudi tutte le connessioni WebSocket
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.close(1000, 'Server shutting down');
+    }
+  });
+
+  // Timeout per forzare la chiusura
+  setTimeout(() => {
+    console.error('Timeout raggiunto, forzando chiusura...');
+    process.exit(1);
+  }, 10000);
+
+  // Chiudi il server WebSocket
+  wss.close(() => {
+    console.log('Server WebSocket chiuso');
+    console.log('Shutdown completato');
     process.exit(0);
   });
-});
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
