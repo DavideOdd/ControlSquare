@@ -5,7 +5,7 @@ services:
     env: node
     region: frankfurt # Cambia con la tua region preferita
     plan: free # Cambia con: starter, standard, pro se necessario
-    branch: main # O il tuo branch principale
+    branch: claude/github-app-integration-011CUtaWiQSTADsHDhzJZxUs
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /
