@@ -10,8 +10,8 @@ WORKDIR /app
 # Copia package files
 COPY package*.json ./
 
-# Installa dipendenze
-RUN npm ci --only=production
+# Installa dipendenze (usa npm ci se esiste package-lock.json, altrimenti npm install)
+RUN if [ -f package-lock.json ]; then npm ci --only=production; else npm install --production; fi
 
 # Stage 2: Production
 FROM node:18-alpine
