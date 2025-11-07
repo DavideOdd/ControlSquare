@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Control Square - Display</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+</head>
+<body>
+  <div id="displayContainer" class="display-container">
+    <!-- UI Minimizzabile -->
+    <div id="displayUI" class="display-ui">
+      <div class="ui-header">
+        <h3>Display Control</h3>
+        <button id="minimizeBtn" class="minimize-btn" title="Minimizza/Espandi">
+          <span id="minimizeIcon">−</span>
+        </button>
+      </div>
+
+      <div class="ui-content">
+        <div class="form-group">
+          <label for="displayNameInput">Nome Display:</label>
+          <input
+            type="text"
+            id="displayNameInput"
+            class="display-name-input"
+            placeholder="Es: Tablet Cucina"
+          >
+        </div>
+
+        <div class="display-id-label">
+          ID: <span id="displayIdLabel">Connessione...</span>
+        </div>
+
+        <div class="connection-status">
+          <div id="statusIndicator" class="status-indicator"></div>
+          <span id="statusText">Disconnesso</span>
+        </div>
+
+        <div class="qr-code-container">
+          <canvas id="qrCode"></canvas>
+          <p style="margin-top: 0.5rem; font-size: 0.8rem; color: #666;">
+            Scansiona per aprire questo display
+          </p>
+        </div>
+
+        <button id="fullscreenBtn" class="btn btn-primary fullscreen-btn">
+          Fullscreen
+        </button>
+
+        <button id="copyUrlBtn" class="btn btn-secondary fullscreen-btn">
+          Copia URL
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    class DisplayClient {
+      constructor() {
+        this.ws = null;
+        this.displayId = this.getOrCreateDisplayId();
+        this.displayName = localStorage.getItem('displayName') || '';
+        this.currentColor = '#000000';
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
+        this.reconnectDelay = 1000;
+        this.isMinimized = false;
+
+        this.initUI();
+        this.connect();
+        this.setupEventListeners();
+        this.generateQRCode();
+      }
+
+      getOrCreateDisplayId() {
+        let id = localStorage.getItem('displayId');
+        if (!id) {
+          id = 'display-' + this.generateUUID();
+          localStorage.setItem('displayId', id);
+        }
+        return id;
+      }
+
+      generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      }
+
+      initUI() {
+        document.getElementById('displayIdLabel').textContent = this.displayId.substring(0, 16) + '...';
+
+        if (this.displayName) {
+          document.getElementById('displayNameInput').value = this.displayName;
+        }
+
+        // Ripristina colore salvato
+        const savedColor = localStorage.getItem('displayColor');
+        if (savedColor) {
+          this.setColor(savedColor);
+        }
+      }
+
+      connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}`;
+
+        console.log('Connessione a:', wsUrl);
+        this.updateStatus(false, 'Connessione...');
+
+        try {
+          this.ws = new WebSocket(wsUrl);
+
+          this.ws.onopen = () => {
+            console.log('WebSocket connesso');
+            this.reconnectAttempts = 0;
+            this.updateStatus(true, 'Connesso');
+            this.register();
+          };
+
+          this.ws.onmessage = (event) => {
+            this.handleMessage(event.data);
+          };
+
+          this.ws.onerror = (error) => {
+            console.error('Errore WebSocket:', error);
+            this.updateStatus(false, 'Errore connessione');
+          };
+
+          this.ws.onclose = () => {
+            console.log('WebSocket disconnesso');
+            this.updateStatus(false, 'Disconnesso');
+            this.attemptReconnect();
+          };
+
+        } catch (error) {
+          console.error('Errore nella creazione WebSocket:', error);
+          this.updateStatus(false, 'Errore');
+          this.attemptReconnect();
+        }
+      }
+
+      attemptReconnect() {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++;
+          const delay = this.reconnectDelay * Math.min(this.reconnectAttempts, 5);
+
+          console.log(`Tentativo di riconnessione ${this.reconnectAttempts}/${this.maxReconnectAttempts} tra ${delay}ms`);
+          this.updateStatus(false, `Riconnessione... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+          setTimeout(() => {
+            this.connect();
+          }, delay);
+        } else {
+          this.updateStatus(false, 'Connessione fallita');
+          console.error('Massimo numero di tentativi di riconnessione raggiunto');
+        }
+      }
+
+      register() {
+        const message = {
+          type: 'register',
+          clientType: 'display',
+          displayId: this.displayId,
+          name: this.displayName,
+          color: this.currentColor
+        };
+
+        this.send(message);
+      }
+
+      handleMessage(data) {
+        try {
+          const message = JSON.parse(data);
+
+          switch(message.type) {
+            case 'registered':
+              console.log('Display registrato con successo');
+              break;
+
+            case 'colorChange':
+              if (message.payload && message.payload.color) {
+                this.setColor(message.payload.color);
+              }
+              break;
+
+            case 'rename':
+              if (message.payload && message.payload.name) {
+                this.displayName = message.payload.name;
+                document.getElementById('displayNameInput').value = this.displayName;
+                localStorage.setItem('displayName', this.displayName);
+              }
+              break;
+
+            case 'ping':
+              this.send({ type: 'pong' });
+              break;
+
+            case 'disconnect':
+              this.ws.close();
+              break;
+
+            default:
+              console.log('Messaggio non gestito:', message.type);
+          }
+        } catch (error) {
+          console.error('Errore nel parsing del messaggio:', error);
+        }
+      }
+
+      setColor(color) {
+        this.currentColor = color;
+        document.getElementById('displayContainer').style.backgroundColor = color;
+        localStorage.setItem('displayColor', color);
+
+        // Notifica il server del cambio colore
+        this.send({
+          type: 'updateDisplayInfo',
+          color: color
+        });
+
+        // Animazione di transizione
+        const container = document.getElementById('displayContainer');
+        container.style.animation = 'none';
+        setTimeout(() => {
+          container.style.animation = 'colorTransition 1s ease-out';
+        }, 10);
+      }
+
+      send(message) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify(message));
+        } else {
+          console.warn('WebSocket non connesso, impossibile inviare messaggio');
+        }
+      }
+
+      updateStatus(connected, text) {
+        const indicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+
+        if (connected) {
+          indicator.classList.add('connected');
+          statusText.textContent = text;
+        } else {
+          indicator.classList.remove('connected');
+          statusText.textContent = text;
+        }
+      }
+
+      setupEventListeners() {
+        // Nome display
+        const nameInput = document.getElementById('displayNameInput');
+        let nameTimeout;
+
+        nameInput.addEventListener('input', (e) => {
+          clearTimeout(nameTimeout);
+          nameTimeout = setTimeout(() => {
+            this.displayName = e.target.value;
+            localStorage.setItem('displayName', this.displayName);
+
+            this.send({
+              type: 'updateDisplayInfo',
+              name: this.displayName
+            });
+          }, 500);
+        });
+
+        // Fullscreen
+        document.getElementById('fullscreenBtn').addEventListener('click', () => {
+          this.toggleFullscreen();
+        });
+
+        // Copia URL
+        document.getElementById('copyUrlBtn').addEventListener('click', () => {
+          this.copyUrl();
+        });
+
+        // Minimizza/Espandi
+        document.getElementById('minimizeBtn').addEventListener('click', () => {
+          this.toggleMinimize();
+        });
+
+        // Fullscreen change event
+        document.addEventListener('fullscreenchange', () => {
+          if (!document.fullscreenElement) {
+            document.getElementById('displayUI').style.display = 'block';
+          }
+        });
+
+        // Previeni chiusura accidentale
+        window.addEventListener('beforeunload', (e) => {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            // Opzionale: mostra avviso
+            // e.preventDefault();
+            // e.returnValue = '';
+          }
+        });
+      }
+
+      toggleFullscreen() {
+        const elem = document.getElementById('displayContainer');
+
+        if (!document.fullscreenElement) {
+          if (elem.requestFullscreen) {
+            elem.requestFullscreen();
+          } else if (elem.webkitRequestFullscreen) {
+            elem.webkitRequestFullscreen();
+          } else if (elem.msRequestFullscreen) {
+            elem.msRequestFullscreen();
+          }
+
+          // Nascondi UI in fullscreen dopo 3 secondi
+          setTimeout(() => {
+            if (document.fullscreenElement) {
+              document.getElementById('displayUI').style.display = 'none';
+            }
+          }, 3000);
+
+        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen();
+          } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+          } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+          }
+        }
+      }
+
+      toggleMinimize() {
+        const ui = document.getElementById('displayUI');
+        const icon = document.getElementById('minimizeIcon');
+
+        this.isMinimized = !this.isMinimized;
+
+        if (this.isMinimized) {
+          ui.classList.add('minimized');
+          icon.textContent = '+';
+        } else {
+          ui.classList.remove('minimized');
+          icon.textContent = '−';
+        }
+      }
+
+      copyUrl() {
+        const url = window.location.href;
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(() => {
+            this.showNotification('URL copiato negli appunti!');
+          }).catch(err => {
+            console.error('Errore nella copia:', err);
+            this.fallbackCopyUrl(url);
+          });
+        } else {
+          this.fallbackCopyUrl(url);
+        }
+      }
+
+      fallbackCopyUrl(url) {
+        const textArea = document.createElement('textarea');
+        textArea.value = url;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+
+        try {
+          document.execCommand('copy');
+          this.showNotification('URL copiato negli appunti!');
+        } catch (err) {
+          console.error('Errore nella copia:', err);
+          this.showNotification('Impossibile copiare URL');
+        }
+
+        document.body.removeChild(textArea);
+      }
+
+      showNotification(message) {
+        const notification = document.createElement('div');
+        notification.textContent = message;
+        notification.style.cssText = `
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: rgba(99, 102, 241, 0.95);
+          color: white;
+          padding: 1rem 2rem;
+          border-radius: 0.5rem;
+          font-weight: 600;
+          z-index: 10000;
+          animation: fadeIn 0.3s ease-out;
+        `;
+
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+          notification.style.opacity = '0';
+          notification.style.transition = 'opacity 0.3s ease-out';
+          setTimeout(() => {
+            document.body.removeChild(notification);
+          }, 300);
+        }, 2000);
+      }
+
+      generateQRCode() {
+        const url = window.location.href;
+        const canvas = document.getElementById('qrCode');
+
+        QRCode.toCanvas(canvas, url, {
+          width: 200,
+          margin: 1,
+          color: {
+            dark: '#000000',
+            light: '#ffffff'
+          }
+        }, (error) => {
+          if (error) {
+            console.error('Errore generazione QR Code:', error);
+          }
+        });
+      }
+    }
+
+    // Inizializza il display client
+    window.addEventListener('DOMContentLoaded', () => {
+      const displayClient = new DisplayClient();
+
+      // Esponi globalmente per debug
+      window.displayClient = displayClient;
+    });
+  </script>
+</body>
+</html>
